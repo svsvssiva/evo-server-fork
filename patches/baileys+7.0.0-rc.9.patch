@@ -1,0 +1,53 @@
+diff --git a/node_modules/baileys/lib/Socket/messages-recv.js b/node_modules/baileys/lib/Socket/messages-recv.js
+index f2e2e10..d587f03 100644
+--- a/node_modules/baileys/lib/Socket/messages-recv.js
++++ b/node_modules/baileys/lib/Socket/messages-recv.js
+@@ -911,6 +911,18 @@ export const makeMessagesRecvSocket = (config) => {
+             await sendMessageAck(node);
+         }
+     };
++    // WhatsApp now delivers contacts' Status updates to linked devices as a top-level
++    // <status> stanza. It is not decoded here, but it must be acked: otherwise the
++    // server holds back inbound messages and ends the stream ~50 minutes later with
++    // <stream:error><ack class="status"/></stream:error> (Baileys #2858, Evolution #2778).
++    const handleStatus = async (node) => {
++        try {
++            await sendMessageAck(node);
++        }
++        catch (error) {
++            onUnexpectedError(error, 'acking status stanza');
++        }
++    };
+     const handleNotification = async (node) => {
+         const remoteJid = node.attrs.from;
+         if (shouldIgnoreJid(remoteJid) && remoteJid !== S_WHATSAPP_NET) {
+@@ -1171,7 +1183,8 @@ export const makeMessagesRecvSocket = (config) => {
+             ['message', handleMessage],
+             ['call', handleCall],
+             ['receipt', handleReceipt],
+-            ['notification', handleNotification]
++            ['notification', handleNotification],
++            ['status', handleStatus]
+         ]);
+         const nodes = [];
+         let isProcessing = false;
+@@ -1189,7 +1202,8 @@ export const makeMessagesRecvSocket = (config) => {
+                         onUnexpectedError(new Error(`unknown offline node type: ${type}`), 'processing offline node');
+                         continue;
+                     }
+-                    await nodeProcessor(node);
++                    // one failing stanza must not stop the rest of the offline queue
++                    await nodeProcessor(node).catch(error => onUnexpectedError(error, `processing offline ${type}`));
+                 }
+                 isProcessing = false;
+             };
+@@ -1220,6 +1234,9 @@ export const makeMessagesRecvSocket = (config) => {
+     ws.on('CB:notification', async (node) => {
+         await processNode('notification', node, 'handling notification', handleNotification);
+     });
++    ws.on('CB:status', async (node) => {
++        await processNode('status', node, 'acking status stanza', handleStatus).catch(error => onUnexpectedError(error, 'acking status stanza'));
++    });
+     ws.on('CB:ack,class:message', (node) => {
+         handleBadAck(node).catch(error => onUnexpectedError(error, 'handling bad ack'));
+     });

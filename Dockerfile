@@ -12,8 +12,13 @@ WORKDIR /evolution
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
+COPY ./patches ./patches
 
 RUN npm ci --silent
+
+# Fail the build if the Baileys <status> ack patch (patches/) is not in place.
+RUN grep -q "ws.on('CB:status'" node_modules/baileys/lib/Socket/messages-recv.js && \
+    node --check node_modules/baileys/lib/Socket/messages-recv.js
 
 COPY ./src ./src
 COPY ./public ./public
